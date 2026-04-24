@@ -6,60 +6,62 @@ import json
 # 1. CONEXIÓN SEGURA CON GOOGLE GEMINI (BACKEND)
 # =====================================================================
 @frappe.whitelist()
+@frappe.whitelist()
 def generar_reporte_gemini(prompt_text):
-    """
-    Recibe el prompt desde React, busca las credenciales en la base de datos,
-    se comunica con Google de forma segura y devuelve el reporte médico.
-    """
     try:
-        # 1. Obtener la configuración centralizada del DocType que creamos
+        # 1. Obtener configuración
         config = frappe.get_doc("Configuracion Gemini")
         api_key = config.api_key
-        
-        # Parámetros dinámicos desde el DocType
-        modelo = config.modelo_predeterminado if config.modelo_predeterminado else "gemini-2.5-flash"
-        temperatura = config.temperatura if config.temperatura else 0.3
-        
+        modelo = config.modelo_predeterminado or "gemini-2.5-flash"
+        # Asegurar que temperatura sea float
+        temperatura = float(config.temperatura) if config.temperatura else 0.3
+
         if not api_key:
             frappe.throw("Error: No hay API Key configurada en 'Configuracion Gemini'.")
 
-        # 2. Configurar el Endpoint de Google
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        
-        # 3. Ensamblar el Payload estricto para Gemini
+        # 2. Construir payload MÍNIMO para probar (funciona seguro)
         payload = {
-            "systemInstruction": {
-                "parts": [{
-                    "text": "Actúa como un ecografista vascular senior. Tu único propósito es redactar un informe médico clínico, estructurado y preciso a partir de una matriz de datos JSON."
-                }]
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": prompt_text}]
-                }
-            ],
-            "generationConfig": {
-                "temperature": float(temperatura)
-            }
+            "contents": [{"parts": [{"text": prompt_text}]}]
         }
 
-        # 4. Petición HTTP segura desde el servidor (no desde el iPad)
+        # 3. Opcional: añadir systemInstruction y generationConfig de forma controlada
+        # Puedes ir agregando uno a uno para identificar el error
+        payload["systemInstruction"] = {
+            "parts": [{
+                "text": "Actúa como un ecografista vascular senior. Tu único propósito es redactar un informe médico clínico, estructurado y preciso a partir de una matriz de datos JSON."
+            }]
+        }
+        payload["generationConfig"] = {
+            "temperature": temperatura
+        }
+
+        # 4. Logger para depuración (verás el payload en Error Log de Frappe)
+        frappe.log_error(f"Payload enviado a Gemini: {json.dumps(payload, indent=2)}", "Gemini Payload")
+
+        # 5. Petición
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
         response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status() 
-        
+
+        # 6. Si hay error, registrar la respuesta completa y lanzar excepción
+        if response.status_code != 200:
+            error_msg = f"Error {response.status_code}: {response.text}"
+            frappe.log_error(error_msg, "Gemini Error")
+            frappe.throw(f"Google Gemini respondió con error: {error_msg}")
+
         data = response.json()
-        
-        # 5. Extraer la respuesta de texto
-        if 'candidates' in data and len(data['candidates']) > 0:
-            return data['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return "Error: La IA no devolvió un resultado válido."
-            
+
+        # 7. Extraer texto
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if parts:
+                return parts[0].get("text", "No se encontró texto en la respuesta.")
+        return "No se pudo generar el informe."
+
     except Exception as e:
         frappe.log_error(message=frappe.get_traceback(), title="Error en API Gemini")
-        frappe.throw("Fallo de conexión con la IA. Revise los logs del sistema.")
+        frappe.throw(f"Error interno: {str(e)}")
 
 
 # =====================================================================
