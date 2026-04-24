@@ -6,12 +6,12 @@ import json
 # 1. CONEXIÓN SEGURA CON GOOGLE GEMINI (BACKEND)
 # =====================================================================
 @frappe.whitelist()
-@frappe.whitelist()
 def generar_reporte_gemini(prompt_text):
     try:
         # 1. Obtener configuración
         config = frappe.get_doc("Configuracion Gemini")
         api_key = config.api_key
+        frappe.log_error(f"API Key leída: {api_key[:10]}... (longitud: {len(api_key)})", "Gemini Debug")        
         modelo = config.modelo_predeterminado or "gemini-2.5-flash"
         # Asegurar que temperatura sea float
         temperatura = float(config.temperatura) if config.temperatura else 0.3
