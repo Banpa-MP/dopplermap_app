@@ -17,8 +17,8 @@ frappe = ">=16.0.0"
 
 [tool.frappe]
 app_name = "dopplermap_app"
-app_title = "Doppler Test"
-app_publisher = "Test"
+app_title = "Dopplermap App"
+app_publisher = "Felix Alberti"
 app_description = "Testing"
 app_icon = "octicon octicon-file-directory"
 app_color = "grey"
