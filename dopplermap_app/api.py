@@ -5,53 +5,65 @@ import json
 # =====================================================================
 # 1. CONEXIÓN SEGURA CON GOOGLE GEMINI (BACKEND)
 # =====================================================================
+
 @frappe.whitelist()
 def generar_reporte_gemini(prompt_text):
     try:
         # 1. Obtener configuración
         config = frappe.get_doc("Configuracion Gemini")
         api_key = config.api_key
-        frappe.log_error(f"API Key leída: {api_key[:10]}... (longitud: {len(api_key)})", "Gemini Debug")        
+        frappe.log_error(f"API Key leída: {api_key[:10]}... (longitud: {len(api_key)})", "Gemini Debug")
+        
         modelo = config.modelo_predeterminado or "gemini-2.5-flash"
-        # Asegurar que temperatura sea float
-        temperatura = float(config.temperatura) if config.temperatura else 0.3
-
+        
+        # 2. Validar y corregir temperatura (debe estar en [0.0, 2.0])
+        try:
+            temperatura = float(config.temperatura) if config.temperatura else 0.3
+        except (TypeError, ValueError):
+            temperatura = 0.3
+            frappe.log_error("Temperatura inválida, usando 0.3 por defecto", "Gemini Debug")
+        
+        # Forzar rango
+        if temperatura < 0.0:
+            temperatura = 0.0
+        elif temperatura > 2.0:
+            temperatura = 2.0
+        
         if not api_key:
             frappe.throw("Error: No hay API Key configurada en 'Configuracion Gemini'.")
 
-        # 2. Construir payload MÍNIMO para probar (funciona seguro)
+        # 3. Construir payload
         payload = {
-            "contents": [{"parts": [{"text": prompt_text}]}]
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "systemInstruction": {
+                "parts": [{
+                    "text": "Actúa como un ecografista vascular senior. Tu único propósito es redactar un informe médico clínico, estructurado y preciso a partir de una matriz de datos JSON."
+                }]
+            },
+            "generationConfig": {
+                "temperature": temperatura
+            }
         }
 
-        # 3. Opcional: añadir systemInstruction y generationConfig de forma controlada
-        # Puedes ir agregando uno a uno para identificar el error
-        payload["systemInstruction"] = {
-            "parts": [{
-                "text": "Actúa como un ecografista vascular senior. Tu único propósito es redactar un informe médico clínico, estructurado y preciso a partir de una matriz de datos JSON."
-            }]
-        }
-        payload["generationConfig"] = {
-            "temperature": temperatura
-        }
-
-        # 4. Logger para depuración (verás el payload en Error Log de Frappe)
-        frappe.log_error(f"Payload enviado a Gemini: {json.dumps(payload, indent=2)}", "Gemini Payload")
-
-        # 5. Petición
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+        
+        # 4. Imprimir URL y payload en los logs (y también en consola si es posible)
+        frappe.log_error(f"URL de Gemini: {url}", "Gemini Debug")
+        frappe.log_error(f"Payload enviado a Gemini: {json.dumps(payload, indent=2)}", "Gemini Payload")
+        
+        # Opcional: imprimir en la salida estándar (si estás en modo consola)
+        print("URL:", url)
+        print("Payload:", json.dumps(payload, indent=2))
+        
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, headers=headers, json=payload, timeout=30)
 
-        # 6. Si hay error, registrar la respuesta completa y lanzar excepción
         if response.status_code != 200:
             error_msg = f"Error {response.status_code}: {response.text}"
             frappe.log_error(error_msg, "Gemini Error")
             frappe.throw(f"Google Gemini respondió con error: {error_msg}")
 
         data = response.json()
-
-        # 7. Extraer texto
         candidates = data.get("candidates", [])
         if candidates:
             parts = candidates[0].get("content", {}).get("parts", [])
