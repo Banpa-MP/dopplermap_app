@@ -108,9 +108,6 @@ def generar_reporte_gemini(prompt_text):
 
 
 # =====================================================================
-# 2. GUARDADO DE DATOS EN EL DOCTYPE 'VASCULAR ENCOUNTER'
-# =====================================================================
-# =====================================================================
 # 2. GUARDADO DE DATOS EN EL DOCTYPE 'VASCULAR ENCOUNTER - ECO DOPPLER'
 # =====================================================================
 @frappe.whitelist()
@@ -118,24 +115,29 @@ def guardar_doppler_frontend(encounter_id, sistema, reporte_ia, matriz_datos):
     """
     Guarda o actualiza un registro de 'Vascular Encounter - Eco Doppler'
     vinculado al encuentro clínico (Vascular Encounter) dado por encounter_id.
-
-    Los detalles de cada segmento se almacenan en la child table
-    'Vascular Encounter - Eco Doppler Detail'.
     """
+    # --- LOG 1: Función iniciada
+    frappe.log_error(f"Inicio guardar_doppler_frontend; encounter_id={encounter_id}, sistema={sistema}", "Doppler Log")
+
     if not encounter_id:
-        frappe.throw("No se proporcionó un ID de Encuentro (Vascular Encounter).")
+        frappe.log_error("Falta encounter_id", "Doppler Log")
+        frappe.throw("No se proporcionó un ID de Encuentro.")
 
     # Verificar que el Vascular Encounter padre exista
     if not frappe.db.exists("Vascular Encounter", encounter_id):
+        frappe.log_error(f"No existe Vascular Encounter con ID {encounter_id}", "Doppler Log")
         frappe.throw(f"No se encontró el Vascular Encounter con ID {encounter_id}")
 
     try:
-        # 1. Buscar si ya existe un registro de Eco Doppler para este encuentro
+        # --- LOG 2: Antes de buscar/crear el eco doppler
+        frappe.log_error(f"Buscando Vascular Encounter - Eco Doppler con parent_encounter={encounter_id}", "Doppler Log")
         filters = {"parent_encounter": encounter_id}
         existing = frappe.db.get_value("Vascular Encounter - Eco Doppler", filters, "name")
+        frappe.log_error(f"Resultado búsqueda: {existing}", "Doppler Log")
 
         if existing:
             doc = frappe.get_doc("Vascular Encounter - Eco Doppler", existing)
+            frappe.log_error(f"Documento existente cargado: {doc.name}", "Doppler Log")
         else:
             # Crear nuevo registro
             doc = frappe.get_doc({
@@ -145,88 +147,88 @@ def guardar_doppler_frontend(encounter_id, sistema, reporte_ia, matriz_datos):
                 "reporte_ia": reporte_ia,
             })
             doc.insert(ignore_permissions=True)
+            frappe.log_error(f"Nuevo documento creado: {doc.name}", "Doppler Log")
 
-        # 2. Actualizar campos principales
+        # Actualizar campos principales
         doc.sistema_evaluado = sistema
         doc.reporte_ia = reporte_ia
-        # Si tienes el campo matriz_json (opcional, oculto)
         if doc.meta.get_field("matriz_json"):
             doc.matriz_json = matriz_datos
+            frappe.log_error("Campo matriz_json actualizado", "Doppler Log")
 
-        # 3. Limpiar la child table existente
-        # IMPORTANTE: 'detalles_segmentos' es el fieldname del campo de tipo Table
-        # que DEFINISTE en el DocType padre 'Vascular Encounter - Eco Doppler'.
-        # Ese campo Table tiene su opción 'Options' configurada como
-        # 'Vascular Encounter - Eco Doppler Detail'. Por eso al hacer append(),
-        # Frappe sabe qué DocType hijo usar.
+        # Limpiar child table
         doc.set("detalles_segmentos", [])
+        frappe.log_error("Child table limpiada", "Doppler Log")
 
-        # 4. Parsear la matriz de datos
+        # Parsear matriz_datos
         try:
             datos = json.loads(matriz_datos) if isinstance(matriz_datos, str) else matriz_datos
-        except json.JSONDecodeError:
+            frappe.log_error(f"Matriz parseada correctamente. Keys: {list(datos.keys())}", "Doppler Log")
+        except json.JSONDecodeError as e:
+            frappe.log_error(f"Error parseando JSON: {str(e)}", "Doppler Log")
             frappe.throw("La matriz de datos no es un JSON válido.")
 
-        # 5. Recorrer lateralidades y segmentos
+        # Recorrer lateralidades y segmentos
+        total_filas = 0
         for lateralidad, segmentos in datos.items():
+            frappe.log_error(f"Procesando lateralidad: {lateralidad}", "Doppler Log")
             if lateralidad not in ["DERECHA", "IZQUIERDA"]:
+                frappe.log_error(f"Lateralidad ignorada (no válida): {lateralidad}", "Doppler Log")
                 continue
             for nombre_segmento, valores in segmentos.items():
-                # Extraer valores con conversiones seguras
+                total_filas += 1
+                frappe.log_error(f"Segmento: {nombre_segmento}, valores: {valores}", "Doppler Log")
+                # ... (el resto de la lógica de extracción es la misma que tenías)
+                # Extraer diametro, reflujo, psv, hallazgos...
                 diametro = valores.get('diametro')
                 if diametro is not None:
                     try:
                         diametro = float(diametro)
-                    except (TypeError, ValueError):
+                    except:
                         diametro = None
 
                 reflujo = valores.get('reflujo')
                 if reflujo is not None:
                     try:
                         reflujo = int(reflujo)
-                    except (TypeError, ValueError):
+                    except:
                         reflujo = None
 
                 psv = valores.get('psv')
                 if psv is not None:
                     try:
                         psv = float(psv)
-                    except (TypeError, ValueError):
+                    except:
                         psv = None
 
-                # Hallazgos: puede venir como string o construirse
                 hallazgos = valores.get('hallazgos')
                 if not hallazgos and isinstance(valores, dict):
                     parts = []
                     if valores.get('color'):
-                        parts.append(valores['color'])
+                        parts.append(str(valores['color']))
                     if valores.get('pared'):
                         p = valores['pared']
                         if isinstance(p, list):
-                            parts.extend(p)
+                            parts.extend([str(x) for x in p])
                         else:
-                            parts.append(p)
+                            parts.append(str(p))
                     if valores.get('focal'):
                         f = valores['focal']
                         if isinstance(f, list):
-                            parts.extend(f)
+                            parts.extend([str(x) for x in f])
                         else:
-                            parts.append(f)
+                            parts.append(str(f))
                     if valores.get('interventions'):
                         inv = valores['interventions']
                         if isinstance(inv, list):
-                            parts.extend(inv)
+                            parts.extend([str(x) for x in inv])
                         else:
-                            parts.append(inv)
+                            parts.append(str(inv))
                     hallazgos = ", ".join(parts) if parts else None
 
-                # Truncar hallazgos a 140 caracteres (máximo para tipo Data)
                 if hallazgos and len(hallazgos) > 140:
                     hallazgos = hallazgos[:140]
 
-                # Añadir fila a la child table
-                # El campo 'detalles_segmentos' apunta al DocType 'Vascular Encounter - Eco Doppler Detail',
-                # por lo que los siguientes campos deben coincidir con los fieldnames de ese DocType.
                 doc.append('detalles_segmentos', {
                     'lateralidad': lateralidad,
                     'segmento': nombre_segmento,
@@ -235,13 +237,17 @@ def guardar_doppler_frontend(encounter_id, sistema, reporte_ia, matriz_datos):
                     'psv': psv,
                     'hallazgos': hallazgos
                 })
+                frappe.log_error(f"Fila añadida para {nombre_segmento}", "Doppler Log")
 
-        # 6. Guardar el documento (padre + hijos se guardan juntos)
+        frappe.log_error(f"Total de filas procesadas: {total_filas}", "Doppler Log")
+
+        # Guardar documento
         doc.save(ignore_permissions=False)
         frappe.db.commit()
+        frappe.log_error(f"Documento {doc.name} guardado exitosamente", "Doppler Log")
 
-        return doc.name   # Retorna el nombre del Eco Doppler guardado
+        return doc.name
 
     except Exception as e:
-        frappe.log_error(message=frappe.get_traceback(), title="Error al guardar Doppler")
+        frappe.log_error(f"EXCEPCIÓN CAPTURADA: {frappe.get_traceback()}", "Doppler Log")
         frappe.throw(f"Error al guardar en la Historia Clínica: {str(e)}")
