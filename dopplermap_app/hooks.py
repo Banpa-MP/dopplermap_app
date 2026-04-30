@@ -1,0 +1,6 @@
+app_name = "dopplermap_app"
+app_title = "Dopplermap App"
+app_publisher = "Felix"
+app_description = "Doppler"
+app_email = "felixalberti74@email.com"
+app_license = "mit"
